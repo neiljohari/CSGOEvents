@@ -10,6 +10,11 @@ import me.skreem.game.events.bomb.BombExplodeEvent;
 import me.skreem.game.events.bomb.BombPlantEvent;
 import me.skreem.game.Game;
 import me.skreem.game.Round;
+import me.skreem.game.events.bomb.BombState;
+import me.skreem.game.events.round.RoundEndEvent;
+import me.skreem.game.events.round.RoundFreezetimeEvent;
+import me.skreem.game.events.round.RoundStartEvent;
+import me.skreem.game.events.round.RoundState;
 import org.apache.commons.io.IOUtils;
 
 import java.io.IOException;
@@ -17,7 +22,8 @@ import java.io.InputStream;
 import java.io.OutputStream;
 
 public class HttpEventHandler implements HttpHandler {
-    private int bombStateDebounce = -1;
+    private BombState bombState = null;
+    private RoundState roundState = null;
     private Gson gson;
 
     public HttpEventHandler() {
@@ -32,7 +38,9 @@ public class HttpEventHandler implements HttpHandler {
         String string = IOUtils.toString(in, "utf-8");
 
         Game game = gson.fromJson(string, Game.class);
+        parseRoundPhase(game);
         parseBombState(game);
+
 
         Headers responseHeaders = exchange.getResponseHeaders();
         responseHeaders.set("Content-Type", "text/plain");
@@ -44,22 +52,42 @@ public class HttpEventHandler implements HttpHandler {
         responseBody.close();
     }
 
+    private void parseRoundPhase(Game game){
+        Round round = game.getRound();
+        RoundState state = RoundState.valueOf(round.getPhase().toUpperCase());
+
+        if (state == RoundState.FREEZETIME && roundState != RoundState.FREEZETIME) {
+            roundState = RoundState.FREEZETIME;
+            Event.callEvent(new RoundFreezetimeEvent(game));
+        }
+
+        if (state == RoundState.LIVE && roundState != RoundState.LIVE) {
+            roundState = RoundState.LIVE;
+            Event.callEvent(new RoundStartEvent(game));
+        }
+
+        if (state == RoundState.OVER && roundState != RoundState.OVER) {
+            roundState = RoundState.OVER;
+            Event.callEvent(new RoundEndEvent(game));
+        }
+    }
+
     private void parseBombState(Game game) {
         Round round = game.getRound();
-        String bombState = round.getBomb();
+        BombState state = BombState.valueOf(round.getBomb().toUpperCase());
 
-        if (bombState.equals("exploded") && bombStateDebounce != 1) {
-            bombStateDebounce = 1;
+        if (state == BombState.EXPLODED && bombState != BombState.EXPLODED) {
+            bombState = BombState.EXPLODED;
             Event.callEvent(new BombExplodeEvent(game));
         }
 
-        if (bombState.equals("planted") && bombStateDebounce != 2) {
-            bombStateDebounce = 2;
+        if (state == BombState.PLANTED && bombState != BombState.PLANTED) {
+            bombState = BombState.PLANTED;
             Event.callEvent(new BombPlantEvent(game));
         }
 
-        if (bombState.equals("defused") && bombStateDebounce != 3) {
-            bombStateDebounce = 3;
+        if (state == BombState.DEFUSED && bombState != BombState.DEFUSED) {
+            bombState = BombState.DEFUSED;
             Event.callEvent(new BombDefuseEvent(game));
         }
     }
